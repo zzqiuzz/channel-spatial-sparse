@@ -5,10 +5,36 @@ def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
+class DynamicSpatialModule(nn.Module):
+    def __init__(self,spatial_in,spatial_out,outchannel,reduction):
+        super(DynamicSpatialModule,self).__init__()
+        self.spatialin = spatial_in
+        self.spatialout = spatial_out
+        self.fc = nn.Sequential(
+            nn.Linear(spatialin, spatialin // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(spatialin // reduction, spatialout, bias=False),
+            nn.Sigmoid()
+        )
+        self.outchannel = outchannel 
 
-class DynamicModule(nn.Module):
+    def forward(self, x):
+        b, c, h, w = x.size()
+        y = x.mean(1,True).view(b,-1) # out: b x hw
+        y = self.fc(y).view(b,self.spatialout)
+        #return x * y.expand_as(x)
+        # select top K largest values to output 
+        # status: d = 1  select all channels
+        #
+        #shape = torch.Tensor(b,self.outchannel,h,w)
+        
+        #return y.expand_as(shape)
+        return y
+
+
+class DynamicChannelModule(nn.Module):
     def __init__(self,inchannel,outchannel,reduction):
-        super(DynamicModule,self).__init__()
+        super(DynamicChannelModule,self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Sequential(
             nn.Linear(inchannel, inchannel // reduction, bias=False),
@@ -25,7 +51,7 @@ class DynamicModule(nn.Module):
         y = self.fc(y).view(b, self.outchannel, 1, 1)
         #return x * y.expand_as(x)
         # select top K largest values to output 
-        # status: d = 1  select all values
+        # status: d = 1  select all channels
         #
         #shape = torch.Tensor(b,self.outchannel,h,w)
         
@@ -36,19 +62,19 @@ class DynamicModule(nn.Module):
 class DynamicBlock(nn.Module):
     def __init__(self,inplanes,planes,reduction,stride=1):
         super(DynamicBlock, self).__init__()
-        h = 0
-        w = 0
         self.conv1 = conv3x3(inplanes,planes,stride)
         self.bn1 = nn.BatchNorm2d(planes)        
-        self.dynamic = DynamicModule(inplanes,planes,reduction) 
-    
+        self.dynamic_channel = DynamicChannelModule(inplanes,planes,reduction) 
+        self.dynamic_spatial = DynamicSpatialModule(spatialin,spatialout,planes,reduction) 
     def forward(self,x):
         out = self.conv1(x)
         out = self.bn1(out)
         
-        out_d = self.dynamic(x) 
-        out_d.expand_as(out)
-        return out_d * out 
+        channel_predictor = self.dynamic_channel(x) 
+        channel_predictor.expand_as(out)
+        spatial_predictor = self.dynamic_spatial(x)
+        spatial_predictor.
+        return channel_predictor * out 
 
 class DynamicResidualBasicBlock(nn.Module):
     expansion = 1
