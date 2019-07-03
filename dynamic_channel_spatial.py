@@ -69,7 +69,8 @@ def main():
     model = models.__dict__[args.arch](pretrained=False)
     print_log("=> Model : {}".format(model), log)
     print_log("=> parameter : {}".format(args), log)
-    
+    print_log("Learning-Rate   : {}".format(args.lr), log)
+    print_log("Workers         : {}".format(args.workers), log)
     if args.show:
         input_data = torch.randn([1,3,224,224])
         flops, params = profile(model,inputs=(input_data, ))
