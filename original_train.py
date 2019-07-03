@@ -18,7 +18,7 @@ from utils import convert_secs2time, time_string, time_file_str
 import models
 import random
 import numpy as np
-os.environ["CUDA_VISIBLE_DEVICES"] = '6,7'
+os.environ["CUDA_VISIBLE_DEVICES"] = '4,5'
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))

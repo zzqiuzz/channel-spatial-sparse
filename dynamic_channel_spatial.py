@@ -21,7 +21,7 @@ import numpy as np
 from collections import OrderedDict
 from tensorboardX import SummaryWriter
 from torchsummary import summary
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "6,7"
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
                      and callable(models.__dict__[name]))
@@ -101,8 +101,8 @@ def main():
 
     if args.show:
         input_data = torch.randn([16,3,224,224])
-        #summary(model.cuda(),(3,224,224))
-        #model = model.cpu()
+        summary(model.cuda(),(3,224,224))
+        model = model.cpu()
         with SummaryWriter(log_dir='./log',comment='resnet18') as w:
             w.add_graph(model,(input_data))
         return 
