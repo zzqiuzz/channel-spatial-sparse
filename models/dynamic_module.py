@@ -1,23 +1,25 @@
 import torch
 import torch.nn as nn
+import numpy as np
 class Topk(torch.autograd.Function):
     def forward(self, input):
-        self.save_for_backward(input)
-        _, l = input.size()
-        removed_num = torch.round(l*0.2)
-        removed_index = input.argsort()[:,[0,removed_num]]
-
+        output = input.clone().abs_()
+        b, l = output.size()
+        removed_num = int(np.round(l*0.3))#remove removed_num elements.
+        removed_index = output.argsort()[:,0:removed_num] # col index
+        row_index = np.tile(np.arange(b),(removed_num,1)).T
+        #for i,_ in output:
+        #    output[i][removed_index[i]] = 0
+        output[row_index,removed_index] = 0 
+        self.save_for_backward(output)
         return output
 
     def backward(self, grad_output):
         input, = self.saved_tensors
-        grad_input = grad_output.clone()
+        output  = grad_output.clone()
+        output[input.eq(0)] = 0
 
-
-
-
-
-        return grad_input
+        return output
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
@@ -39,7 +41,7 @@ class DynamicChannelModule(nn.Module):
         b, c, h, w = x.size()
         y = self.avg_pool(x).view(b, c)
         y = self.fc(y)
-        #y = Topk()(y)#select topk in channel wise
+        y = Topk()(y)#select topk in channel wise
         y = y.view(b, self.outchannel, 1, 1)
 
         return y
@@ -65,7 +67,7 @@ class DynamicSpatialModule(nn.Module):
         b, c, h, w = x.size()
         y = x.mean(1,True).view(b,-1) # out: b x hw
         y = self.fc(y)
-        #y = Topk()(y)#select K point in spatial wise
+        y = Topk()(y)#select K point in spatial wise
         y = y.view(b,1,self.out_d,self.out_d)
         y = y.expand(b,self.outchannel,-1,-1)
 
@@ -86,11 +88,10 @@ class DynamicBlock(nn.Module):
         out = self.bn1(out)
         #spatial
         spatial_predictor = self.dynamic_spatial(x)
-        #channel 
         channel_predictor = self.dynamic_channel(x) 
-        #channel_predictor = self.dynamic(x) 
         channel_predictor.expand_as(out)
         return channel_predictor * out * spatial_predictor 
+        #channel_predictor = self.dynamic(x) 
         #return channel_predictor * out
 
 class DynamicResidualBasicBlock(nn.Module):

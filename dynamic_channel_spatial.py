@@ -21,6 +21,7 @@ import numpy as np
 from collections import OrderedDict
 from tensorboardX import SummaryWriter
 from torchsummary import summary
+from thop import profile
 os.environ["CUDA_VISIBLE_DEVICES"] = "6,7"
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
@@ -100,7 +101,9 @@ def main():
     print_log("lr adjust : {}".format(args.lr_adjust), log)
 
     if args.show:
-        input_data = torch.randn([16,3,224,224])
+        input_data = torch.randn([1,3,224,224])
+        flops, params = profile(model,inputs=(input_data, ))
+        print("flops,:{},params:{}".format(flops, params))
         summary(model.cuda(),(3,224,224))
         model = model.cpu()
         with SummaryWriter(log_dir='./log',comment='resnet18') as w:
