@@ -13,21 +13,21 @@ import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models
-from utils import convert_secs2time, time_string, time_file_str
+from utils.time import convert_secs2time, time_string, time_file_str
+from utils.profile import *
 #from models import print_log
 import models
 import random
 import numpy as np
 from tensorboardX import SummaryWriter
 from torchsummary import summary
-from thop import profile
 os.environ["CUDA_VISIBLE_DEVICES"] = '6,7'
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('data', metavar='DIR',
+parser.add_argument('--data', metavar='DIR',default="/home/share/data/ilsvrc12_shrt_256_torch",
                     help='path to dataset')
 parser.add_argument('--save_dir', type=str, default='./', help='Folder to save checkpoints and log.')
 parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet18',
@@ -47,6 +47,7 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true', help='evaluate model on validation set')
 parser.add_argument('--extract',action='store_true',help='extract features.')
 parser.add_argument('--show',action='store_true',help='show model architecture.')
+parser.add_argument('--flops',action='store_true',help='calc flops given a pretrained model.')
 args = parser.parse_args()
 args.use_cuda = torch.cuda.is_available()
 
@@ -73,14 +74,16 @@ def main():
     print_log("Workers         : {}".format(args.workers), log)
     if args.show:
         input_data = torch.randn([1,3,224,224])
-        flops, params = profile(model,inputs=(input_data, ))
-        print("flops,:{},params:{}".format(flops, params))
         summary(model.cuda(),(3,224,224))
         model = model.cpu()
         with SummaryWriter(log_dir='./log',comment='resnet18') as w:
             w.add_graph(model,(input_data))
         return 
-        
+    if args.flops:
+        input_data = torch.randn([1,3,224,224])
+        flops, params = profile(model,inputs=(input_data, ))
+        print("flops,:{},params:{}".format(clever_format(flops), params))
+        return  
     if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
       model.features = torch.nn.DataParallel(model.features)
       model.cuda()
