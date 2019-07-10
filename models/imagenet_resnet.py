@@ -4,7 +4,7 @@ import torch.utils.model_zoo as model_zoo
 from models.dynamic_module import DynamicResidualBasicBlock
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
-           'resnet152','dynamicresnet18']
+           'resnet152','dynamicresnet18','dynamicresnet34']
 
 
 model_urls = {
@@ -54,7 +54,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, inplanes, planes,spatial, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -66,6 +66,7 @@ class Bottleneck(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
+        self.spatial = spatial #no use here
 
     def forward(self, x):
         residual = x
@@ -155,10 +156,32 @@ def dynamicresnet18(pretrained=False, **kwargs):
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(DynamicResidualBasicBlock, [2, 2, 2, 2], **kwargs)
-    #if pretrained:
-    #    model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
-    return model
+    dynamicmodel = ResNet(DynamicResidualBasicBlock, [2, 2, 2, 2], **kwargs)
+    if pretrained:
+        model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
+        model_params = []
+        for _,v in model.state_dict().items():
+            model_params.append(v) 
+        idx = 0
+        for key,value in dynamicmodel.state_dict().items():
+            if "downsample" in key:
+                value = model_params[idx]
+                idx += 1
+            if "layer" not in key: 
+                value = model_params[idx]
+                idx += 1
+            elif "layer" in key:
+                if "dynamic" in key:
+                    if "conv" in key or "bn" in key: 
+                        if value.shape != model_params[idx].shape:
+                            raise Exception("Params' shape not Equal!") 
+                        value = model_params[idx]
+                        idx += 1
+        if idx != len(model_params):
+            raise Exception("Transferred not Completed!") 
+        print("Initialized Dynamicresnet18 from pretrained resnet18 success.")
+    return dynamicmodel
 
 
 def resnet18(pretrained=False, **kwargs):
@@ -170,6 +193,17 @@ def resnet18(pretrained=False, **kwargs):
     model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
+    return model
+
+def dynamicresnet34(pretrained=False, **kwargs):
+    """Constructs a ResNet-18 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(DynamicResidualBasicBlock, [3, 4, 6, 3], **kwargs)
+    #if pretrained:
+    #    model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
     return model
 
 

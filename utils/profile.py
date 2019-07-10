@@ -50,8 +50,14 @@ def clever_format(num, format="%.2f"):
 
 def profile(model, inputs, custom_ops={}, verbose=True):
     handler_collection = []
-
+    
+          
     def add_hooks(m):
+        for name,sub_m in m.named_modules():
+            if "dynamic" in name:
+                if "conv" in name or "bn" in name:
+                    if not hasattr(m, "dynamic_ops"):
+                        sub_m.register_buffer('dynamic_ops', torch.zeros(1))
         if len(list(m.children())) > 0:
             return
 

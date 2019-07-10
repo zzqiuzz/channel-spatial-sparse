@@ -15,7 +15,7 @@ from .resnet import resnet20, resnet32, resnet44, resnet56, resnet110
 from .preresnet import preresnet20, preresnet32, preresnet44, preresnet56, preresnet110
 from .caffe_cifar import caffe_cifar
 
-from .imagenet_resnet import dynamicresnet18, resnet18, resnet34, resnet50, resnet101, resnet152
+from .imagenet_resnet import dynamicresnet18, dynamicresnet34,resnet18, resnet34, resnet50, resnet101, resnet152
 from .alexnet import alexnet
 from .vgg import vgg11, vgg13, vgg16, vgg19, vgg11_bn, vgg13_bn, vgg16_bn, vgg19_bn 
 

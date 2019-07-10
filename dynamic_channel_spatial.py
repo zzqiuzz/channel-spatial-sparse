@@ -21,7 +21,7 @@ import random
 import numpy as np
 from tensorboardX import SummaryWriter
 from torchsummary import summary
-os.environ["CUDA_VISIBLE_DEVICES"] = '6,7'
+os.environ["CUDA_VISIBLE_DEVICES"] = '2,3'
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
@@ -29,13 +29,13 @@ model_names = sorted(name for name in models.__dict__
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--data', metavar='DIR',default="/home/share/data/ilsvrc12_shrt_256_torch",
                     help='path to dataset')
-parser.add_argument('--save_dir', type=str, default='./', help='Folder to save checkpoints and log.')
+parser.add_argument('--save_dir', type=str, default='./temp', help='Folder to save checkpoints and log.')
 parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet18',
                     choices=model_names,
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet18)')
-parser.add_argument('-j', '--workers', default=12, type=int, metavar='N', help='number of data loading workers (default: 4)')
+parser.add_argument('-j', '--workers', default=12, type=int, metavar='N', help='number of data loading workers (default: 12)')
 parser.add_argument('--epochs', default=100, type=int, metavar='N', help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N', help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=256, type=int, metavar='N', help='mini-batch size (default: 256)')
@@ -48,6 +48,7 @@ parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true', he
 parser.add_argument('--extract',action='store_true',help='extract features.')
 parser.add_argument('--show',action='store_true',help='show model architecture.')
 parser.add_argument('--flops',action='store_true',help='calc flops given a pretrained model.')
+parser.add_argument('--debug',action='store_true',help='debug.')
 args = parser.parse_args()
 args.use_cuda = torch.cuda.is_available()
 
@@ -67,11 +68,15 @@ def main():
     print_log("Vision  version : {}".format(torchvision.__version__), log)
     # create model
     print_log("=> creating model '{}'".format(args.arch), log)
-    model = models.__dict__[args.arch](pretrained=False)
+    model = models.__dict__[args.arch](pretrained=True)
     print_log("=> Model : {}".format(model), log)
     print_log("=> parameter : {}".format(args), log)
     print_log("Learning-Rate   : {}".format(args.lr), log)
     print_log("Workers         : {}".format(args.workers), log)
+    if args.debug:
+        '''for key,value in model.state_dict().items():
+            print(key,value.shape)'''
+        return
     if args.show:
         input_data = torch.randn([1,3,224,224])
         summary(model.cuda(),(3,224,224))
@@ -82,6 +87,7 @@ def main():
     if args.flops:
         input_data = torch.randn([1,3,224,224])
         flops, params = profile(model,inputs=(input_data, ))
+        print(flops)
         print("flops,:{},params:{}".format(clever_format(flops), params))
         return  
     if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
@@ -146,7 +152,7 @@ def main():
 
     
     if args.evaluate:
-        validate(val_loader, model, criterion)
+        validate(val_loader, model, criterion,log)
         return
 
     filename = os.path.join(args.save_dir, 'checkpoint.{}.{}.pth.tar'.format(args.arch, args.prefix))

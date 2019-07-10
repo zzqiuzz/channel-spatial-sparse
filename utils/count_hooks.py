@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 multiply_adds = 1
-
+rate = 0.7
 
 def count_convNd(m, x, y):
     x = x[0]
@@ -16,10 +16,11 @@ def count_convNd(m, x, y):
     ops_per_element = kernel_ops + bias_ops
     output_elements = y.nelement()
 
+    if hasattr(m, "dynamic_ops"):
+        output_elements = y.nelement() * rate * rate
     # cout x oW x oH
     total_ops = cin * output_elements * ops_per_element // m.groups
     m.total_ops = torch.Tensor([int(total_ops)])
-
 
 def count_conv2d(m, x, y):
     x = x[0]
@@ -82,6 +83,8 @@ def count_bn(m, x, y):
     nelements = x.numel()
     # subtract, divide, gamma, beta
     total_ops = 4 * nelements
+    if hasattr(m, "dynamic_ops"):
+        total_ops = 4 * nelements * rate
 
     m.total_ops = torch.Tensor([int(total_ops)])
 
