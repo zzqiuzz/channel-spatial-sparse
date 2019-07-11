@@ -15,16 +15,18 @@ import torchvision.datasets as datasets
 import torchvision.models
 from utils.time import convert_secs2time, time_string, time_file_str
 from utils.profile import *
+import utils.globalvar as gvar
 #from models import print_log
 import models
 import random
 import numpy as np
 from tensorboardX import SummaryWriter
 from torchsummary import summary
-os.environ["CUDA_VISIBLE_DEVICES"] = '2,3'
+#os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
+
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--data', metavar='DIR',default="/home/share/data/ilsvrc12_shrt_256_torch",
@@ -36,6 +38,7 @@ parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet18',
                         ' | '.join(model_names) +
                         ' (default: resnet18)')
 parser.add_argument('-j', '--workers', default=12, type=int, metavar='N', help='number of data loading workers (default: 12)')
+parser.add_argument('--gpu', type=str, metavar='gpuid', help='gpu.')
 parser.add_argument('--epochs', default=100, type=int, metavar='N', help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N', help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=256, type=int, metavar='N', help='mini-batch size (default: 256)')
@@ -46,13 +49,20 @@ parser.add_argument('--print-freq', '-p', default=200, type=int, metavar='N', he
 parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true', help='evaluate model on validation set')
 parser.add_argument('--extract',action='store_true',help='extract features.')
+parser.add_argument('--pretrained',action='store_true',help='use pretrained model.')
 parser.add_argument('--show',action='store_true',help='show model architecture.')
 parser.add_argument('--flops',action='store_true',help='calc flops given a pretrained model.')
 parser.add_argument('--debug',action='store_true',help='debug.')
+parser.add_argument('--removed_ratio',default=0.3,type=float,help='removed ratio.')
+parser.add_argument('--Is_spatial',action='store_true',help='use spatial module or not,default is channel with conv.')
 args = parser.parse_args()
+os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 args.use_cuda = torch.cuda.is_available()
 
 args.prefix = time_file_str()
+gvar._init()
+gvar.set_value('r',args.removed_ratio)
+gvar.set_value('is_spatial',args.Is_spatial)
 
 def main():
     best_prec1 = 0
@@ -62,20 +72,17 @@ def main():
     log = open(os.path.join(args.save_dir, '{}.{}.log'.format(args.arch,args.prefix)), 'w')
 
     # version information
+
     print_log("PyThon  version : {}".format(sys.version.replace('\n', ' ')), log)
     print_log("PyTorch version : {}".format(torch.__version__), log)
     print_log("cuDNN   version : {}".format(torch.backends.cudnn.version()), log)
     print_log("Vision  version : {}".format(torchvision.__version__), log)
     # create model
     print_log("=> creating model '{}'".format(args.arch), log)
-    model = models.__dict__[args.arch](pretrained=True)
+    model = models.__dict__[args.arch](pretrained=args.pretrained,LOG=log)
     print_log("=> Model : {}".format(model), log)
     print_log("=> parameter : {}".format(args), log)
-    print_log("Learning-Rate   : {}".format(args.lr), log)
-    print_log("Workers         : {}".format(args.workers), log)
     if args.debug:
-        '''for key,value in model.state_dict().items():
-            print(key,value.shape)'''
         return
     if args.show:
         input_data = torch.randn([1,3,224,224])
@@ -202,14 +209,13 @@ def train(train_loader, model, criterion, optimizer, epoch, log):
     for i, (input, target) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
-
-        target = target.cuda(async=True)
-        input_var = torch.autograd.Variable(input)
-        target_var = torch.autograd.Variable(target)
-
+        target = target.cuda(non_blocking=True)
+        #input_var = torch.autograd.Variable(input)
+        #target_var = torch.autograd.Variable(target)
+        input = input.cuda(non_blocking=True)
         # compute output
-        output = model(input_var)
-        loss = criterion(output, target_var)
+        output = model(input)
+        loss = criterion(output, target)
 
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
@@ -274,37 +280,37 @@ def validate(val_loader, model, criterion, log):
 
     # switch to evaluate mode
     model.eval()
-
-    end = time.time()
-    for i, (input, target) in enumerate(val_loader):
-        target = target.cuda(async=True)
-        input_var = torch.autograd.Variable(input, volatile=True)
-        target_var = torch.autograd.Variable(target, volatile=True)
-
-        # compute output
-        output = model(input_var)
-        loss = criterion(output, target_var)
-
-        # measure accuracy and record loss
-        prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
-        losses.update(loss.data.item(), input.size(0))
-        top1.update(prec1[0], input.size(0))
-        top5.update(prec5[0], input.size(0))
-
-        # measure elapsed time
-        batch_time.update(time.time() - end)
+    with torch.no_grad():
         end = time.time()
-
-        if i % args.print_freq == 0:
-            print_log('Test: [{0}/{1}]\t'
-                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
-                  'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
-                   i, len(val_loader), batch_time=batch_time, loss=losses,
-                   top1=top1, top5=top5), log)
-
-    print_log(' * Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f}'.format(top1=top1, top5=top5, error1=100-top1.avg), log)
+        for i, (input, target) in enumerate(val_loader):
+            target = target.cuda(non_blocking=True)
+            #input_var = torch.autograd.Variable(input, volatile=True)
+            #target_var = torch.autograd.Variable(target, volatile=True)
+            input = input.cuda(non_blocking=True) 
+            # compute output
+            output = model(input)
+            loss = criterion(output, target)
+  
+            # measure accuracy and record loss
+            prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
+            losses.update(loss.data.item(), input.size(0))
+            top1.update(prec1[0], input.size(0))
+            top5.update(prec5[0], input.size(0))
+  
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+  
+            if i % args.print_freq == 0:
+                print_log('Test: [{0}/{1}]\t'
+                    'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                    'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                    'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                    'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
+                     i, len(val_loader), batch_time=batch_time, loss=losses,
+                     top1=top1, top5=top5), log)
+  
+        print_log(' * Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f}'.format(top1=top1, top5=top5, error1=100-top1.avg), log)
 
     return top1.avg
 

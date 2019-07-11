@@ -1,23 +1,28 @@
 import torch
 import torch.nn as nn
 import numpy as np
-removed_ratio = 0.2
+import utils.globalvar as gvar
 class Topk(torch.autograd.Function):
     def forward(self, input):
-        output = input.clone()
-        temp = output.abs_()
-        b, l = temp.size()
-        removed_num = int(np.round(l*removed_ratio))#remove removed_num elements.
-        removed_index = temp.argsort()[:,0:removed_num] # col index
-        row_index = np.tile(np.arange(b),(removed_num,1)).T
-        output[row_index,removed_index] = 0 
-        self.save_for_backward(output)
-        return output
+        removed_ratio = gvar.get_value('r')
+        if removed_ratio == 0:
+            return input
+        else:
+            output = input.clone()
+            temp = output.abs_()
+            b, l = temp.size()
+            removed_num = int(np.round(l*removed_ratio))#remove removed_num elements.
+            removed_index = temp.argsort()[:,0:removed_num] # col index
+            row_index = np.tile(np.arange(b),(removed_num,1)).T
+            output[row_index,removed_index] = 0 
+            self.save_for_backward(output)
+            return output
 
     def backward(self, grad_output):
-        input, = self.saved_tensors
         output  = grad_output.clone()
-        output[input.eq(0)] = 0
+        if gvar.get_value('r') != 0:
+            input, = self.saved_tensors
+            output[input.eq(0)] = 0
         return output
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
@@ -94,20 +99,22 @@ class DynamicBlock(nn.Module):
         super(DynamicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes,planes,stride)
         self.bn1 = nn.BatchNorm2d(planes)        
-        #self.dynamic = DynamicChannelModule(inplanes,planes,reduction) 
+        self.ispatial = gvar.get_value('is_spatial')
         self.dynamic_channel = DynamicChannelModule(inplanes,planes,reduction) 
         #self.dynamic_spatial = DynamicSpatialFcModule(spatial,planes,reduction,downsample) 
-        #self.dynamic_spatial = DynamicSpatialConvModule(planes,stride) 
+        if self.ispatial:
+            self.dynamic_spatial = DynamicSpatialConvModule(planes,stride) 
     def forward(self,x):
         out = self.conv1(x)
         out = self.bn1(out)
-        #spatial
-        #spatial_predictor = self.dynamic_spatial(x)
+        if self.ispatial:
+            spatial_predictor = self.dynamic_spatial(x)
         channel_predictor = self.dynamic_channel(x) 
         channel_predictor.expand_as(out)
-        #return channel_predictor * out * spatial_predictor #sparse in both channel and spatial 
-        #channel_predictor = self.dynamic(x) 
-        return channel_predictor * out
+        if self.ispatial:
+            return channel_predictor * out * spatial_predictor #sparse in both channel and spatial 
+        else:
+            return channel_predictor * out
 
 class DynamicResidualBasicBlock(nn.Module):
     expansion = 1

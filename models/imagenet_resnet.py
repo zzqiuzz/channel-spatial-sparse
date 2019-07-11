@@ -156,9 +156,9 @@ def dynamicresnet18(pretrained=False, **kwargs):
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    dynamicmodel = ResNet(DynamicResidualBasicBlock, [2, 2, 2, 2], **kwargs)
+    dynamicmodel = ResNet(DynamicResidualBasicBlock, [2, 2, 2, 2])
     if pretrained:
-        model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+        model = ResNet(BasicBlock, [2, 2, 2, 2])
         model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
         model_params = []
         for _,v in model.state_dict().items():
@@ -168,9 +168,11 @@ def dynamicresnet18(pretrained=False, **kwargs):
             if "downsample" in key:
                 value = model_params[idx]
                 idx += 1
+                continue
             if "layer" not in key: 
                 value = model_params[idx]
                 idx += 1
+                continue
             elif "layer" in key:
                 if "dynamic" in key:
                     if "conv" in key or "bn" in key: 
@@ -180,7 +182,9 @@ def dynamicresnet18(pretrained=False, **kwargs):
                         idx += 1
         if idx != len(model_params):
             raise Exception("Transferred not Completed!") 
-        print("Initialized Dynamicresnet18 from pretrained resnet18 success.")
+        kwargs["LOG"].write('{}\n'.format("Initialized Dynamicresnet18 from pretrained resnet18 success."
+))
+        kwargs["LOG"].flush()
     return dynamicmodel
 
 
