@@ -1,0 +1,1 @@
+python dynamic_channel_spatial.py -a dynamicresnet18 --save_dir snapshots/topk-channle-only-0.9-pretrained  --resume snapshots/topk-channle-only-1-pretrained/best.dynamicresnet18.2019-07-11-7589.pth.tar --removed_ratio 0.1 --gpu 3,4

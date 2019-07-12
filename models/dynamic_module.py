@@ -107,11 +107,10 @@ class DynamicBlock(nn.Module):
     def forward(self,x):
         out = self.conv1(x)
         out = self.bn1(out)
-        if self.ispatial:
-            spatial_predictor = self.dynamic_spatial(x)
         channel_predictor = self.dynamic_channel(x) 
         channel_predictor.expand_as(out)
         if self.ispatial:
+            spatial_predictor = self.dynamic_spatial(x)
             return channel_predictor * out * spatial_predictor #sparse in both channel and spatial 
         else:
             return channel_predictor * out

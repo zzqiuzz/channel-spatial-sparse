@@ -73,6 +73,7 @@ def main():
 
     # version information
 
+    print_log("Using  GPUs : {}".format(str(args.gpu)), log)
     print_log("PyThon  version : {}".format(sys.version.replace('\n', ' ')), log)
     print_log("PyTorch version : {}".format(torch.__version__), log)
     print_log("cuDNN   version : {}".format(torch.backends.cudnn.version()), log)
