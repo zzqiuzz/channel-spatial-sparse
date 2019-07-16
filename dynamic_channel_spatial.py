@@ -46,7 +46,8 @@ parser.add_argument('--lr', '--learning-rate', default=0.1, type=float, metavar=
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M', help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float, metavar='W', help='weight decay (default: 1e-4)')
 parser.add_argument('--print-freq', '-p', default=200, type=int, metavar='N', help='print frequency (default: 100)')
-parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
+parser.add_argument('--resume_normal', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
+parser.add_argument('--resume_from', default='', type=str, metavar='PATH', help='path to pretrained model')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true', help='evaluate model on validation set')
 parser.add_argument('--extract',action='store_true',help='extract features.')
 parser.add_argument('--pretrained',action='store_true',help='use pretrained model.')
@@ -68,9 +69,10 @@ def main():
     best_prec1 = 0
 
     if not os.path.isdir(args.save_dir):
-      os.makedirs(args.save_dir)
+    	os.makedirs(args.save_dir)
     log = open(os.path.join(args.save_dir, '{}.{}.log'.format(args.arch,args.prefix)), 'w')
-
+    if args.pretrained:
+        gvar.set_value('log',log)
     # version information
 
     print_log("Using  GPUs : {}".format(str(args.gpu)), log)
@@ -80,7 +82,7 @@ def main():
     print_log("Vision  version : {}".format(torchvision.__version__), log)
     # create model
     print_log("=> creating model '{}'".format(args.arch), log)
-    model = models.__dict__[args.arch](pretrained=args.pretrained,LOG=log)
+    model = models.__dict__[args.arch](pretrained=args.pretrained)
     print_log("=> Model : {}".format(model), log)
     print_log("=> parameter : {}".format(args), log)
     if args.debug:
@@ -113,18 +115,26 @@ def main():
                                 nesterov=True)
 
     # optionally resume from a checkpoint
-    if args.resume:
-        if os.path.isfile(args.resume):
-            print_log("=> loading checkpoint '{}'".format(args.resume), log)
-            checkpoint = torch.load(args.resume)
+    if args.resume_normal:
+        if os.path.isfile(args.resume_normal):
+            print_log("=> loading checkpoint '{}'".format(args.resume_normal), log)
+            checkpoint = torch.load(args.resume_normal)
             args.start_epoch = checkpoint['epoch']
             best_prec1 = checkpoint['best_prec1']
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
-            print_log("=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']), log)
+            print_log("=> loaded checkpoint '{}' (epoch {})".format(args.resume_normal, checkpoint['epoch']), log)
         else:
-            print_log("=> no checkpoint found at '{}'".format(args.resume), log)
-
+            print_log("=> no checkpoint found at '{}'".format(args.resume_normal), log)
+    elif args.resume_from: # increse removed_ratio as FBS
+        if os.path.isfile(args.resume_from):
+            print_log("=> loading pretrained model '{}'".format(args.resume_from), log)
+            print_log("=> increase removed ratio to '{}'".format(args.removed_ratio), log)
+            checkpoint = torch.load(args.resume_from)
+            args.start_epoch = 0
+            model.load_state_dict(checkpoint['state_dict'])
+            print_log("=> loaded pretrained model '{}' (epoch {})".format(args.resume_from, args.start_epoch), log)
+		
     cudnn.benchmark = True
 
     # Data loading code
@@ -210,11 +220,12 @@ def train(train_loader, model, criterion, optimizer, epoch, log):
     for i, (input, target) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
-        target = target.cuda(non_blocking=True)
+        #target = target.cuda(async=True)
         #input_var = torch.autograd.Variable(input)
         #target_var = torch.autograd.Variable(target)
+        target = target.cuda(non_blocking=True)
         input = input.cuda(non_blocking=True)
-        # compute output
+        ## compute output
         output = model(input)
         loss = criterion(output, target)
 
@@ -284,10 +295,11 @@ def validate(val_loader, model, criterion, log):
     with torch.no_grad():
         end = time.time()
         for i, (input, target) in enumerate(val_loader):
-            target = target.cuda(non_blocking=True)
+            #target = target.cuda(async=True)
             #input_var = torch.autograd.Variable(input, volatile=True)
             #target_var = torch.autograd.Variable(target, volatile=True)
             input = input.cuda(non_blocking=True) 
+            target = target.cuda(non_blocking=True)
             # compute output
             output = model(input)
             loss = criterion(output, target)

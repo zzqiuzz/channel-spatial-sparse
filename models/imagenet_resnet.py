@@ -2,6 +2,7 @@ import torch.nn as nn
 import math
 import torch.utils.model_zoo as model_zoo
 from models.dynamic_module import DynamicResidualBasicBlock
+import utils.globalvar as gvar
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152','dynamicresnet18','dynamicresnet34']
@@ -182,9 +183,9 @@ def dynamicresnet18(pretrained=False, **kwargs):
                         idx += 1
         if idx != len(model_params):
             raise Exception("Transferred not Completed!") 
-        kwargs["LOG"].write('{}\n'.format("Initialized Dynamicresnet18 from pretrained resnet18 success."
+       	gvar.get_value('log').write('{}\n'.format("Initialized Dynamicresnet18 from pretrained resnet18 success."
 ))
-        kwargs["LOG"].flush()
+        gvar.get_value('log').flush()
     return dynamicmodel
 
 

@@ -1,0 +1,1 @@
+python dynamic_channel_spatial.py -a dynamicresnet18 --save_dir snapshots/topk-channle-only-0.9-from-1-pretrained --lr 0.01 --epochs 90 --resume_from snapshots/topk-channel-only-1-pretrained/99-topk-channel-only-1-pretrained/best.dynamicresnet18.2019-07-13-5029.pth.tar --removed_ratio 0.1 --gpu 2,5
