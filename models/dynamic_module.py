@@ -39,7 +39,6 @@ class DynamicChannelModule(nn.Module):
             nn.Sigmoid()
         )
         self.outchannel = outchannel
-
     def forward(self, x):
         b, c, h, w = x.size()
         y = self.avg_pool(x).view(b, c)
@@ -101,14 +100,20 @@ class DynamicBlock(nn.Module):
         self.bn1 = nn.BatchNorm2d(planes)        
         self.ispatial = gvar.get_value('is_spatial')
         self.dynamic_channel = DynamicChannelModule(inplanes,planes,reduction) 
-        #self.dynamic_spatial = DynamicSpatialFcModule(spatial,planes,reduction,downsample) 
+        self.lasso = gvar.get_value('lasso')
+        if self.lasso:
+            self.register_buffer('channel_l1',torch.zeros(1))
         if self.ispatial:
+        	#self.dynamic_spatial = DynamicSpatialFcModule(spatial,planes,reduction,downsample) 
             self.dynamic_spatial = DynamicSpatialConvModule(planes,stride) 
     def forward(self,x):
         out = self.conv1(x)
         out = self.bn1(out)
         channel_predictor = self.dynamic_channel(x) 
         channel_predictor.expand_as(out)
+        if self.lasso:
+            #_, buf = self.named_buffers()
+            self.channel_l1 = channel_predictor.abs().sum()
         if self.ispatial:
             spatial_predictor = self.dynamic_spatial(x)
             return channel_predictor * out * spatial_predictor #sparse in both channel and spatial 
@@ -140,7 +145,4 @@ class DynamicResidualBasicBlock(nn.Module):
         out = self.relu(out)
 
         return out
-
-
-
 

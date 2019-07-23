@@ -158,7 +158,7 @@ def dynamicresnet18(pretrained=False, **kwargs):
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     dynamicmodel = ResNet(DynamicResidualBasicBlock, [2, 2, 2, 2])
-    if pretrained:
+    if pretrained:#only initialize model with pretrained weights resnet18
         model = ResNet(BasicBlock, [2, 2, 2, 2])
         model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
         model_params = []

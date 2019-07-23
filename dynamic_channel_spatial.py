@@ -29,7 +29,7 @@ model_names = sorted(name for name in models.__dict__
 
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('--data', metavar='DIR',default="/home/share/data/ilsvrc12_shrt_256_torch",
+parser.add_argument('--data', metavar='DIR',default="/home/zhengzhe/data/ilsvrc12_torch",
                     help='path to dataset')
 parser.add_argument('--save_dir', type=str, default='./temp', help='Folder to save checkpoints and log.')
 parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet18',
@@ -56,6 +56,8 @@ parser.add_argument('--flops',action='store_true',help='calc flops given a pretr
 parser.add_argument('--debug',action='store_true',help='debug.')
 parser.add_argument('--removed_ratio',default=0.3,type=float,help='removed ratio.')
 parser.add_argument('--Is_spatial',action='store_true',help='use spatial module or not,default is channel with conv.')
+parser.add_argument('--lasso',action='store_true',help='add l1 regularization to channel module.')
+parser.add_argument('--l1_coe',default=1e-8,type=float,help='coe of l1 regularization.')
 args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 args.use_cuda = torch.cuda.is_available()
@@ -64,7 +66,7 @@ args.prefix = time_file_str()
 gvar._init()
 gvar.set_value('r',args.removed_ratio)
 gvar.set_value('is_spatial',args.Is_spatial)
-
+gvar.set_value('lasso',args.lasso)
 def main():
     best_prec1 = 0
 
@@ -128,13 +130,27 @@ def main():
             print_log("=> no checkpoint found at '{}'".format(args.resume_normal), log)
     elif args.resume_from: # increse removed_ratio as FBS
         if os.path.isfile(args.resume_from):
-            print_log("=> loading pretrained model '{}'".format(args.resume_from), log)
-            print_log("=> increase removed ratio to '{}'".format(args.removed_ratio), log)
-            checkpoint = torch.load(args.resume_from)
-            args.start_epoch = 0
-            model.load_state_dict(checkpoint['state_dict'])
-            print_log("=> loaded pretrained model '{}' (epoch {})".format(args.resume_from, args.start_epoch), log)
-		
+            if not args.lasso:
+            	print_log("=> loading pretrained model '{}'".format(args.resume_from), log)
+            	print_log("=> increase removed ratio to '{}'".format(args.removed_ratio), log)
+            	checkpoint = torch.load(args.resume_from)
+            	args.start_epoch = 0
+            	model.load_state_dict(checkpoint['state_dict'])
+            	print_log("=> loaded pretrained model '{}' (epoch {})".format(args.resume_from, args.start_epoch), log)
+            elif args.lasso:
+                print_log("=> loading pretrained model '{}'".format(args.resume_from), log)
+                print_log("=> increase removed ratio to '{}'".format(args.removed_ratio), log)
+                checkpoint = torch.load(args.resume_from)
+                args.start_epoch = 0
+                oldmodel = checkpoint['state_dict']
+                #for k,v in oldmodel.items():
+                #    print(k)
+                for key,value in model.state_dict().items():
+                    if "channel_l1" in key:
+                        continue
+                    value = oldmodel[key]
+                print_log("=> loaded pretrained model '{}' (epoch {})".format(args.resume_from, args.start_epoch), log)
+                #return
     cudnn.benchmark = True
 
     # Data loading code
@@ -212,7 +228,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log):
     losses = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
-
+    #l1_loss = torch.new_zeros(0,requires_grad=True)
     # switch to train mode
     model.train()
 
@@ -237,6 +253,14 @@ def train(train_loader, model, criterion, optimizer, epoch, log):
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
+        ####add L1 regularization
+        if args.lasso:
+        	for _, m in model.named_modules():
+        	    if hasattr(m,"channel_l1"):
+        	        #l1_loss += m.channel_predictor.cpu()
+        	        loss += args.l1_coe * m.channel_l1.squeeze(0)
+        	#l1_loss *= args.l1_coe
+        	#loss += l1_loss
         loss.backward()
         optimizer.step()
 

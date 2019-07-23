@@ -1,0 +1,1 @@
+python dynamic_channel_spatial.py -a dynamicresnet18 --lr 0.01 --epochs 90 --resume_normal FBS/snapshots/topk-channel-only-0.8-from-0.9-pretrained/checkpoint.dynamicresnet18.2019-07-17-3724.pth.tar --save_dir FBS/snapshots/topk-channel-only-0.8-from-0.9-pretrained/   --removed_ratio 0.2 --gpu 6,7
