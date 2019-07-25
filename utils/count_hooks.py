@@ -3,8 +3,9 @@ import argparse
 import torch
 import torch.nn as nn
 
+import utils.globalvar as gvar
 multiply_adds = 1
-rate = 0.7
+rate = 0.3
 
 def count_convNd(m, x, y):
     x = x[0]

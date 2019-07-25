@@ -32,11 +32,11 @@ parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--data', metavar='DIR',default="/home/zhengzhe/data/ilsvrc12_torch",
                     help='path to dataset')
 parser.add_argument('--save_dir', type=str, default='./temp', help='Folder to save checkpoints and log.')
-parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet18',
+parser.add_argument('--arch', '-a', metavar='ARCH', default='dynamicresnet18',
                     choices=model_names,
                     help='model architecture: ' +
                         ' | '.join(model_names) +
-                        ' (default: resnet18)')
+                        ' (default: dynamicresnet18)')
 parser.add_argument('-j', '--workers', default=12, type=int, metavar='N', help='number of data loading workers (default: 12)')
 parser.add_argument('--gpu', type=str, metavar='gpuid', help='gpu.')
 parser.add_argument('--epochs', default=100, type=int, metavar='N', help='number of total epochs to run')
@@ -54,7 +54,8 @@ parser.add_argument('--pretrained',action='store_true',help='use pretrained mode
 parser.add_argument('--show',action='store_true',help='show model architecture.')
 parser.add_argument('--flops',action='store_true',help='calc flops given a pretrained model.')
 parser.add_argument('--debug',action='store_true',help='debug.')
-parser.add_argument('--removed_ratio',default=0.3,type=float,help='removed ratio.')
+parser.add_argument('--channel_removed_ratio',default=0.2,type=float,help='removed ratio.')
+parser.add_argument('--spatial_removed_ratio',default=0.1,type=float,help='removed ratio.')
 parser.add_argument('--Is_spatial',action='store_true',help='use spatial module or not,default is channel with conv.')
 parser.add_argument('--lasso',action='store_true',help='add l1 regularization to channel module.')
 parser.add_argument('--l1_coe',default=1e-8,type=float,help='coe of l1 regularization.')
@@ -64,7 +65,8 @@ args.use_cuda = torch.cuda.is_available()
 
 args.prefix = time_file_str()
 gvar._init()
-gvar.set_value('r',args.removed_ratio)
+gvar.set_value('removed_ratio_c',args.channel_removed_ratio)
+gvar.set_value('removed_ratio_s',args.spatial_removed_ratio)
 gvar.set_value('is_spatial',args.Is_spatial)
 gvar.set_value('lasso',args.lasso)
 def main():
@@ -128,18 +130,18 @@ def main():
             print_log("=> loaded checkpoint '{}' (epoch {})".format(args.resume_normal, checkpoint['epoch']), log)
         else:
             print_log("=> no checkpoint found at '{}'".format(args.resume_normal), log)
-    elif args.resume_from: # increse removed_ratio as FBS
+    elif args.resume_from: # increse channel_removed_ratio as FBS
         if os.path.isfile(args.resume_from):
             if not args.lasso:
             	print_log("=> loading pretrained model '{}'".format(args.resume_from), log)
-            	print_log("=> increase removed ratio to '{}'".format(args.removed_ratio), log)
+            	print_log("=> increase channel removed ratio to '{}'".format(args.channel_removed_ratio), log)
             	checkpoint = torch.load(args.resume_from)
             	args.start_epoch = 0
             	model.load_state_dict(checkpoint['state_dict'])
             	print_log("=> loaded pretrained model '{}' (epoch {})".format(args.resume_from, args.start_epoch), log)
             elif args.lasso:
                 print_log("=> loading pretrained model '{}'".format(args.resume_from), log)
-                print_log("=> increase removed ratio to '{}'".format(args.removed_ratio), log)
+                print_log("=> increase channel removed ratio to '{}'".format(args.channel_removed_ratio), log)
                 checkpoint = torch.load(args.resume_from)
                 args.start_epoch = 0
                 oldmodel = checkpoint['state_dict']
@@ -148,7 +150,7 @@ def main():
                 for key,value in model.state_dict().items():
                     if "channel_l1" in key:
                         continue
-                    value = oldmodel[key]
+                    value.copy_(oldmodel[key])
                 print_log("=> loaded pretrained model '{}' (epoch {})".format(args.resume_from, args.start_epoch), log)
                 #return
     cudnn.benchmark = True
@@ -244,6 +246,14 @@ def train(train_loader, model, criterion, optimizer, epoch, log):
         ## compute output
         output = model(input)
         loss = criterion(output, target)
+        ####add L1 regularization
+        if args.lasso:
+        	for _, m in model.named_modules():
+        	    if hasattr(m,"channel_l1"):
+        	        #l1_loss += m.channel_predictor.cpu()
+        	        loss += args.l1_coe * m.channel_l1#.squeeze(0)
+        	#l1_loss *= args.l1_coe
+        	#loss += l1_loss
 
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
@@ -253,14 +263,6 @@ def train(train_loader, model, criterion, optimizer, epoch, log):
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        ####add L1 regularization
-        if args.lasso:
-        	for _, m in model.named_modules():
-        	    if hasattr(m,"channel_l1"):
-        	        #l1_loss += m.channel_predictor.cpu()
-        	        loss += args.l1_coe * m.channel_l1.squeeze(0)
-        	#l1_loss *= args.l1_coe
-        	#loss += l1_loss
         loss.backward()
         optimizer.step()
 

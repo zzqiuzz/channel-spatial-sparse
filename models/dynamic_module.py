@@ -102,7 +102,7 @@ class DynamicBlock(nn.Module):
         self.dynamic_channel = DynamicChannelModule(inplanes,planes,reduction) 
         self.lasso = gvar.get_value('lasso')
         if self.lasso:
-            self.register_buffer('channel_l1',torch.zeros(1))
+            self.register_buffer('channel_l1',torch.tensor(1))
         if self.ispatial:
         	#self.dynamic_spatial = DynamicSpatialFcModule(spatial,planes,reduction,downsample) 
             self.dynamic_spatial = DynamicSpatialConvModule(planes,stride) 
