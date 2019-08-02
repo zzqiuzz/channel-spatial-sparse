@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import numpy as np
 import utils.globalvar as gvar
-class Topk(torch.autograd.Function):
+class channelTopk(torch.autograd.Function):
     def forward(self, input):
-        removed_ratio = gvar.get_value('r')
+        removed_ratio = gvar.get_value('removed_ratio_c')
         if removed_ratio == 0:
             return input
         else:
@@ -20,7 +20,29 @@ class Topk(torch.autograd.Function):
 
     def backward(self, grad_output):
         output  = grad_output.clone()
-        if gvar.get_value('r') != 0:
+        if gvar.get_value('removed_ratio_c') != 0:
+            input, = self.saved_tensors
+            output[input.eq(0)] = 0
+        return output
+class spatialTopk(torch.autograd.Function):
+    def forward(self, input):
+        removed_ratio = gvar.get_value('removed_ratio_s')
+        if removed_ratio == 0:
+            return input
+        else:
+            output = input.clone()
+            temp = output.abs_()
+            b, l = temp.size()
+            removed_num = int(np.round(l*removed_ratio))#remove removed_num elements.
+            removed_index = temp.argsort()[:,0:removed_num] # col index
+            row_index = np.tile(np.arange(b),(removed_num,1)).T
+            output[row_index,removed_index] = 0 
+            self.save_for_backward(output)
+            return output
+
+    def backward(self, grad_output):
+        output  = grad_output.clone()
+        if gvar.get_value('removed_ratio_s') != 0:
             input, = self.saved_tensors
             output[input.eq(0)] = 0
         return output
@@ -28,6 +50,10 @@ def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
+def conv7x7(in_planes, out_planes, stride=1):
+    "3x3 convolution with padding"
+    return nn.Conv2d(in_planes, out_planes, kernel_size=7, stride=stride,
+                     padding=3, bias=False)
 class DynamicChannelModule(nn.Module):
     def __init__(self,inchannel,outchannel,reduction):
         super(DynamicChannelModule,self).__init__()
@@ -43,14 +69,15 @@ class DynamicChannelModule(nn.Module):
         b, c, h, w = x.size()
         y = self.avg_pool(x).view(b, c)
         y = self.fc(y)
-        y = Topk()(y)#select topk in channel wise
+        y = channelTopk()(y)#select topk in channel wise
         y = y.view(b, self.outchannel, 1, 1)
         return y
 class DynamicSpatialConvModule(nn.Module):
     def __init__(self,planes,stride):
         super(DynamicSpatialConvModule,self).__init__()
         self.spt = nn.Sequential(
-            conv3x3(2,1,stride),# max pooling + avg pooling
+            #conv3x3(2,1,stride),# max pooling + avg pooling
+            conv7x7(2,1,stride),
             nn.Sigmoid()
         ) 
         self.outchannel = planes 
@@ -61,7 +88,7 @@ class DynamicSpatialConvModule(nn.Module):
         y = torch.cat((y_max,y_avg),1)#b x 2 x h x w
         y = self.spt(y)#b x 1 x h x w 
         b,_,h,w = y.size()
-        y = Topk()(y.view(b,-1))
+        y = spatialTopk()(y.view(b,-1))
         y = y.view(b,1,h,w)
         y = y.expand(b,self.outchannel,-1,-1) 
         return y
@@ -87,7 +114,7 @@ class DynamicSpatialFcModule(nn.Module):# spatial fc layer
         b, c, h, w = x.size()
         y = x.mean(1,keepdim=True).view(b,-1) # out: b x hw
         y = self.fc(y)
-        y = Topk()(y)#select K point in spatial wise
+        y = spatialTopk()(y)#select K point in spatial wise
         y = y.view(b,1,self.out_d,self.out_d)
         y = y.expand(b,self.outchannel,-1,-1)
 
@@ -106,6 +133,8 @@ class DynamicBlock(nn.Module):
         if self.ispatial:
         	#self.dynamic_spatial = DynamicSpatialFcModule(spatial,planes,reduction,downsample) 
             self.dynamic_spatial = DynamicSpatialConvModule(planes,stride) 
+            if self.lasso:
+                self.register_buffer('spatial_l1',torch.tensor(1))
     def forward(self,x):
         out = self.conv1(x)
         out = self.bn1(out)
@@ -116,6 +145,8 @@ class DynamicBlock(nn.Module):
             self.channel_l1 = channel_predictor.abs().sum()
         if self.ispatial:
             spatial_predictor = self.dynamic_spatial(x)
+            if self.lasso:
+                self.spatial_l1 = spatial_predictor.abs().sum()
             return channel_predictor * out * spatial_predictor #sparse in both channel and spatial 
         else:
             return channel_predictor * out

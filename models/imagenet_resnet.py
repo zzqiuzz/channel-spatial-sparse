@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch
 import math
 import torch.utils.model_zoo as model_zoo
 from models.dynamic_module import DynamicResidualBasicBlock
@@ -146,7 +147,7 @@ class ResNet(nn.Module):
         x = self.layer4(x)
 
         x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
+        x = torch.flatten(x,1)
         x = self.fc(x)
 
         return x

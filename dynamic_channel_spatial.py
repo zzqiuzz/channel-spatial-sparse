@@ -29,7 +29,7 @@ model_names = sorted(name for name in models.__dict__
 
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('--data', metavar='DIR',default="/home/zhengzhe/data/ilsvrc12_torch",
+parser.add_argument('--data', metavar='DIR',default="/data/ilsvrc12_torch",
                     help='path to dataset')
 parser.add_argument('--save_dir', type=str, default='./temp', help='Folder to save checkpoints and log.')
 parser.add_argument('--arch', '-a', metavar='ARCH', default='dynamicresnet18',
@@ -150,6 +150,8 @@ def main():
                 for key,value in model.state_dict().items():
                     if "channel_l1" in key:
                         continue
+                    if "spatial_l1" in key:
+                        continue
                     value.copy_(oldmodel[key])
                 print_log("=> loaded pretrained model '{}' (epoch {})".format(args.resume_from, args.start_epoch), log)
                 #return
@@ -252,9 +254,9 @@ def train(train_loader, model, criterion, optimizer, epoch, log):
         	    if hasattr(m,"channel_l1"):
         	        #l1_loss += m.channel_predictor.cpu()
         	        loss += args.l1_coe * m.channel_l1#.squeeze(0)
-        	#l1_loss *= args.l1_coe
-        	#loss += l1_loss
-
+        	    if hasattr(m,"spatial_l1"):
+        	        #l1_loss += m.channel_predictor.cpu()
+        	        loss += args.l1_coe * m.spatial_l1#.squeeze(0)
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
         losses.update(loss.data.item(), input.size(0))
