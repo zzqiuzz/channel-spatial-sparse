@@ -39,7 +39,7 @@ parser.add_argument('--arch', '-a', metavar='ARCH', default='dynamicresnet18',
                         ' (default: dynamicresnet18)')
 parser.add_argument('-j', '--workers', default=12, type=int, metavar='N', help='number of data loading workers (default: 12)')
 parser.add_argument('--gpu', type=str, metavar='gpuid', help='gpu.')
-parser.add_argument('--epochs', default=100, type=int, metavar='N', help='number of total epochs to run')
+parser.add_argument('--epochs', default=70, type=int, metavar='N', help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N', help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=256, type=int, metavar='N', help='mini-batch size (default: 256)')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float, metavar='LR', help='initial learning rate')
@@ -59,6 +59,7 @@ parser.add_argument('--spatial_removed_ratio',default=0.1,type=float,help='remov
 parser.add_argument('--Is_spatial',action='store_true',help='use spatial module or not,default is channel with conv.')
 parser.add_argument('--lasso',action='store_true',help='add l1 regularization to channel module.')
 parser.add_argument('--l1_coe',default=1e-8,type=float,help='coe of l1 regularization.')
+parser.add_argument('--sep_wd',action='store_true',help='seprate weight decay.')
 args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 args.use_cuda = torch.cuda.is_available()
@@ -90,11 +91,20 @@ def main():
     print_log("=> Model : {}".format(model), log)
     print_log("=> parameter : {}".format(args), log)
     if args.debug:
+        #for k,v in model.named_modules():
+        all_parameters = model.parameters()
+        weight_parameters = []
+        for name,value in model.named_parameters():
+            if 'dynamic_channel' in name:
+                weight_parameters.append(value)
+        weight_parameters_id = list(map(id, weight_parameters))
+        other_parameters = list(filter(lambda p: id(p) not in weight_parameters_id, all_parameters))
+            #print(k)
         return
     if args.show:
         input_data = torch.randn([1,3,224,224])
-        summary(model.cuda(),(3,224,224))
-        model = model.cpu()
+        #summary(model.cuda(),(3,224,224))
+        #model = model.cpu()
         with SummaryWriter(log_dir='./log',comment='resnet18') as w:
             w.add_graph(model,(input_data))
         return 
@@ -112,12 +122,27 @@ def main():
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda()
-
-    optimizer = torch.optim.SGD(model.parameters(), args.lr,
+    if args.sep_wd:
+        all_parameters = model.parameters()
+        dynamic_parameters = []
+        for name,value in model.named_parameters():
+            if 'dynamic_channel' in name:
+                dynamic_parameters.append(value)
+        dynamic_parameters_id = list(map(id, dynamic_parameters))
+        backbone_parameters = list(filter(lambda p: id(p) not in dynamic_parameters_id, all_parameters))
+        optimizer = torch.optim.SGD([{'params': backbone_parameters},
+                                    {'params': dynamic_parameters,'weight_decay': 1e-8}],
+                                    args.lr,
+                                    momentum=args.momentum,
+                                    weight_decay=args.weight_decay,
+                                    nesterov=True)
+    else:   
+        optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay,
                                 nesterov=True)
-
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[args.epochs//4, 
+                                                     args.epochs//2, args.epochs//4*3], gamma=0.1)
     # optionally resume from a checkpoint
     if args.resume_normal:
         if os.path.isfile(args.resume_normal):
@@ -156,7 +181,8 @@ def main():
                 print_log("=> loaded pretrained model '{}' (epoch {})".format(args.resume_from, args.start_epoch), log)
                 #return
     cudnn.benchmark = True
-
+    for epoch in range(args.start_epoch):
+        scheduler.step()
     # Data loading code
     traindir = os.path.join(args.data, 'train')
     valdir = os.path.join(args.data, 'val')
@@ -199,17 +225,17 @@ def main():
     start_time = time.time()
     epoch_time = AverageMeter()
     for epoch in range(args.start_epoch, args.epochs):
-        adjust_learning_rate(optimizer, epoch)
+        #adjust_learning_rate(optimizer, epoch,log)
 
         need_hour, need_mins, need_secs = convert_secs2time(epoch_time.val * (args.epochs-epoch))
         need_time = '[Need: {:02d}:{:02d}:{:02d}]'.format(need_hour, need_mins, need_secs)
         print_log(' [{:s}] :: {:3d}/{:3d} ----- [{:s}] {:s}'.format(args.arch, epoch, args.epochs, time_string(), need_time), log)
-
+        scheduler.step()
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, log)
         # evaluate on validation set
         val_acc_2 = validate(val_loader, model, criterion, log)
-
+        
         # remember best prec@1 and save checkpoint
         is_best = val_acc_2 > best_prec1
         best_prec1 = max(val_acc_2, best_prec1)
@@ -297,19 +323,20 @@ def extract(val_loader,model):
     out_shape = []
     weight = []
     #layer_name = "layer2_0_conv1"
-    layer_name = "layer1_1_bn2"
+    layer_name = "lasso-e6_layer1.1_dynamicblock"
     outfileName = layer_name + ".npz" 
     for i,data in enumerate(val_loader):
         input = data[0].cuda()
-        model.module.layer1[1].bn2.register_forward_hook(get_activation(in_data,activation,in_shape,out_shape))
+        model.module.layer1[1].dynamicblock1.dynamic_channel.register_forward_hook(get_activation(in_data,activation,in_shape,out_shape))
         output = model(input)
+        np.savez(outfileName,name=layer_name,in_data=in_data,feature=activation,in_shape=in_shape,out_shape=out_shape)
         print("Input & Output extracted.")
-        for _,m in enumerate(model.named_modules()):
-            if m[0] == "module.layer1.1.bn2": #"module.layer2.0.conv1":
-                for param in m[1].parameters():
-                    weight = param.data.detach().cpu().numpy()
-                    np.savez(outfileName,name=layer_name,in_data=in_data,feature=activation,in_shape=in_shape,out_shape=out_shape,weight=weight)
-        print("weights saved.")
+        #for _,m in enumerate(model.named_modules()):
+        #    if m[0] == "module.layer1.1.bn2": #"module.layer2.0.conv1":
+        #        for param in m[1].parameters():
+        #            weight = param.data.detach().cpu().numpy()
+        #            np.savez(outfileName,name=layer_name,in_data=in_data,feature=activation,in_shape=in_shape,out_shape=out_shape,weight=weight)
+        #print("weights saved.")
         break
         
 def validate(val_loader, model, criterion, log):
@@ -385,9 +412,10 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def adjust_learning_rate(optimizer, epoch):
+def adjust_learning_rate(optimizer, epoch,log):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     lr = args.lr * (0.1 ** (epoch // 30))
+    print_log("learning rate @ {} is '{}')".format(epoch,lr), log)
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 

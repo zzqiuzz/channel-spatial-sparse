@@ -12,7 +12,11 @@ class channelTopk(torch.autograd.Function):
             temp = output.abs_()
             b, l = temp.size()
             removed_num = int(np.round(l*removed_ratio))#remove removed_num elements.
-            removed_index = temp.argsort()[:,0:removed_num] # col index
+            #removed_index = temp.argsort()[:,0:removed_num] # col index
+            ### smallest k
+            saved_num = l - removed_num
+            removed_index = temp.argsort()[:,saved_num:] # col index
+            #####
             row_index = np.tile(np.arange(b),(removed_num,1)).T
             output[row_index,removed_index] = 0 
             self.save_for_backward(output)
@@ -34,7 +38,11 @@ class spatialTopk(torch.autograd.Function):
             temp = output.abs_()
             b, l = temp.size()
             removed_num = int(np.round(l*removed_ratio))#remove removed_num elements.
-            removed_index = temp.argsort()[:,0:removed_num] # col index
+            #removed_index = temp.argsort()[:,0:removed_num] # col index
+            ### smallest k
+            saved_num = l - removed_num
+            removed_index = temp.argsort()[:,saved_num:] # col index
+            #####
             row_index = np.tile(np.arange(b),(removed_num,1)).T
             output[row_index,removed_index] = 0 
             self.save_for_backward(output)
@@ -63,12 +71,13 @@ class DynamicChannelModule(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(inchannel // reduction, outchannel, bias=False),
             nn.Sigmoid()
+            #nn.Tanh()
         )
         self.outchannel = outchannel
     def forward(self, x):
         b, c, h, w = x.size()
         y = self.avg_pool(x).view(b, c)
-        y = self.fc(y)
+        y = self.fc(y)# + 1
         y = channelTopk()(y)#select topk in channel wise
         y = y.view(b, self.outchannel, 1, 1)
         return y
